@@ -219,6 +219,7 @@ tr:hover td{background:rgba(16,185,129,0.04);cursor:pointer}
     <label>📅 الشهور:</label>
     <div id="mFilters" style="display:flex;gap:5px;flex-wrap:wrap"></div>
     <div class="search-wrap"><input id="searchQ" type="text" placeholder="🔍 ابحث عن سائق..."></div>
+    <button class="fbtn" onclick="openMonthsCmp()" style="background:rgba(168,85,247,0.1);border-color:rgba(168,85,247,0.3);color:#a855f7">⚖️ مقارنة الشهور</button>
   </div>
 
   <!-- STATS -->
@@ -1035,6 +1036,204 @@ function saveDashboard(){
 document.getElementById('mCloseBtn').onclick=function(){document.getElementById('overlay').classList.remove('show');};
 document.getElementById('overlay').onclick=function(e){if(e.target===this)this.classList.remove('show');};
 window.processFiles=processFiles;window.handleFiles=handleFiles;window.removeFile=removeFile;
+</script>
+
+<!-- MONTHS COMPARE MODAL -->
+<div id="mcmp-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:2000;overflow-y:auto;padding:20px" onclick="if(event.target===this)closeMCmp()">
+  <div style="max-width:900px;margin:0 auto;background:#0d1829;border:1px solid rgba(168,85,247,0.3);border-radius:20px;padding:24px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div style="font-size:18px;font-weight:900;color:white">⚖️ مقارنة الشهور</div>
+      <button onclick="closeMCmp()" style="background:rgba(255,255,255,0.1);border:none;border-radius:8px;padding:6px 14px;color:white;cursor:pointer;font-size:16px">✕</button>
+    </div>
+    <div style="margin-bottom:16px">
+      <div style="font-size:12px;color:#64748b;margin-bottom:8px">اختر الشهور للمقارنة:</div>
+      <div id="mcmp-months" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+    </div>
+    <button onclick="runMonthsCmp()" style="background:linear-gradient(135deg,#a855f7,#9333ea);border:none;border-radius:10px;padding:10px 24px;color:white;font-size:13px;font-weight:800;font-family:Cairo,sans-serif;cursor:pointer;margin-bottom:20px">🔍 مقارنة</button>
+    <div id="mcmp-result"></div>
+  </div>
+</div>
+
+<script>
+var mcmpSelected = [];
+
+function openMonthsCmp(){
+  mcmpSelected = months.length >= 2 ? [months[0].label, months[months.length-1].label] : months.map(function(m){return m.label;});
+  renderMCmpMonths();
+  document.getElementById('mcmp-overlay').style.display='block';
+  runMonthsCmp();
+}
+
+function closeMCmp(){
+  document.getElementById('mcmp-overlay').style.display='none';
+}
+
+function renderMCmpMonths(){
+  document.getElementById('mcmp-months').innerHTML = months.map(function(m){
+    var on = mcmpSelected.indexOf(m.label)>=0;
+    return '<button onclick="toggleMCmp(\''+m.label+'\')" style="padding:6px 14px;border-radius:10px;border:1px solid '+(on?'#a855f7':'rgba(255,255,255,0.1)')+';background:'+(on?'rgba(168,85,247,0.2)':'rgba(255,255,255,0.04)')+';color:'+(on?'#a855f7':'#64748b')+';cursor:pointer;font-family:Cairo,sans-serif;font-size:12px;font-weight:700">'+m.label+'</button>';
+  }).join('');
+}
+
+function toggleMCmp(lbl){
+  var i=mcmpSelected.indexOf(lbl);
+  if(i>=0) mcmpSelected.splice(i,1); else mcmpSelected.push(lbl);
+  renderMCmpMonths();
+}
+
+var mcmpMode = 'amt'; // amt or cnt
+
+function runMonthsCmp(){
+  var sel = months.filter(function(m){return mcmpSelected.indexOf(m.label)>=0;});
+  if(!sel.length){
+    document.getElementById('mcmp-result').innerHTML='<div style="color:#64748b;text-align:center;padding:30px">اختر شهرين على الأقل للمقارنة</div>';
+    return;
+  }
+  var COLS2=['#10b981','#3b82f6','#f59e0b','#a855f7','#ef4444','#06b6d4'];
+
+  // ── إجمالي كل شهر ──
+  var mStats=sel.map(function(mo){
+    var totAmt=0,totCnt=0,byProj={};
+    mo.emps.forEach(function(e){
+      totAmt+=e.totAmt;totCnt+=e.totCnt;
+      Object.keys(e.byProj||{}).forEach(function(k){
+        if(!byProj[k])byProj[k]={cnt:0,amt:0};
+        byProj[k].cnt+=e.byProj[k].cnt;byProj[k].amt+=e.byProj[k].amt;
+      });
+    });
+    return {label:mo.label,totAmt:totAmt,totCnt:totCnt,drivers:mo.emps.length,byProj:byProj,emps:mo.emps};
+  });
+
+  var maxAmt=Math.max.apply(null,mStats.map(function(m){return m.totAmt;}))||1;
+  var maxCnt=Math.max.apply(null,mStats.map(function(m){return m.totCnt;}))||1;
+
+  // ── كروت الشهور ──
+  var cards=mStats.map(function(m,i){
+    var cl=COLS2[i%COLS2.length];
+    var pctA=Math.round(m.totAmt/maxAmt*100);
+    var pctC=Math.round(m.totCnt/maxCnt*100);
+    return '<div style="background:rgba(13,24,41,0.9);border:1px solid '+cl+'55;border-radius:14px;padding:16px;flex:1;min-width:150px">'+
+      '<div style="font-size:15px;font-weight:900;color:'+cl+';margin-bottom:12px;text-align:center">'+m.label+'</div>'+
+      '<div style="margin-bottom:10px">'+
+        '<div style="display:flex;justify-content:space-between;font-size:11px;color:#64748b;margin-bottom:4px"><span>💰 المبلغ</span><span style="color:'+cl+';font-weight:800">'+fc(m.totAmt)+'</span></div>'+
+        '<div style="background:rgba(255,255,255,0.05);border-radius:4px;height:5px"><div style="width:'+pctA+'%;height:100%;background:'+cl+';border-radius:4px"></div></div>'+
+      '</div>'+
+      '<div style="margin-bottom:10px">'+
+        '<div style="display:flex;justify-content:space-between;font-size:11px;color:#64748b;margin-bottom:4px"><span>🚛 النقلات</span><span style="color:'+cl+';font-weight:800">'+fn(m.totCnt)+' نقلة</span></div>'+
+        '<div style="background:rgba(255,255,255,0.05);border-radius:4px;height:5px"><div style="width:'+pctC+'%;height:100%;background:'+cl+';border-radius:4px"></div></div>'+
+      '</div>'+
+      '<div style="display:flex;gap:8px;font-size:11px;color:#64748b">'+
+        '<span>👤 '+m.drivers+' سائق</span>'+
+        '<span>📊 '+fn(m.totCnt ? Math.round(m.totAmt/m.totCnt) : 0)+' ج.م/نقلة</span>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+
+  // ── جدول مقارنة السواقين ──
+  var allDrivers={};
+  mStats.forEach(function(m){
+    m.emps.forEach(function(e){ if(!allDrivers[e.id]) allDrivers[e.id]={id:e.id,name:e.name}; });
+  });
+  var driversList=Object.values(allDrivers).sort(function(a,b){
+    // رتب حسب إجمالي المبلغ في أول شهر
+    var ea=mStats[0].emps.find(function(e){return e.id===a.id;});
+    var eb=mStats[0].emps.find(function(e){return e.id===b.id;});
+    return ((eb?eb.totAmt:0)-(ea?ea.totAmt:0));
+  });
+
+  var thCols=mStats.map(function(m,i){
+    return '<th style="text-align:center;color:'+COLS2[i%COLS2.length]+';padding:8px;white-space:nowrap">'+m.label+'<br>'+
+      '<span style="font-size:9px;opacity:.7">مبلغ | نقلات</span></th>';
+  }).join('');
+
+  var tbody=driversList.map(function(d,di){
+    var bg=di%2===0?'rgba(255,255,255,0.02)':'transparent';
+    // احسب التغيير بين أول وآخر شهر
+    var first=mStats[0].emps.find(function(e){return e.id===d.id;});
+    var last=mStats[mStats.length-1].emps.find(function(e){return e.id===d.id;});
+    var trend='';
+    if(first&&last&&mStats.length>1){
+      var diff=last.totAmt-first.totAmt;
+      trend=diff>0?'<span style="color:#10b981;font-size:10px">▲'+fc(diff)+'</span>':
+            diff<0?'<span style="color:#ef4444;font-size:10px">▼'+fc(Math.abs(diff))+'</span>':
+            '<span style="color:#64748b;font-size:10px">=</span>';
+    }
+    var mCols=mStats.map(function(m,i){
+      var cl=COLS2[i%COLS2.length];
+      var e=m.emps.find(function(x){return x.id===d.id;});
+      if(!e) return '<td style="text-align:center;color:#374151;padding:6px">—</td>';
+      // bar للمبلغ
+      var maxE=Math.max.apply(null,mStats.map(function(mx){
+        var ex=mx.emps.find(function(x){return x.id===d.id;});
+        return ex?ex.totAmt:0;
+      }))||1;
+      var pct=Math.round(e.totAmt/maxE*100);
+      return '<td style="padding:6px 10px;text-align:center">'+
+        '<div style="font-size:12px;font-weight:800;color:'+cl+'">'+fc(e.totAmt)+'</div>'+
+        '<div style="background:rgba(255,255,255,0.04);border-radius:3px;height:3px;margin:3px 0">'+
+          '<div style="width:'+pct+'%;height:100%;background:'+cl+';border-radius:3px"></div></div>'+
+        '<div style="font-size:10px;color:#64748b">'+fn(e.totCnt)+' نقلة</div>'+
+      '</td>';
+    }).join('');
+    return '<tr style="background:'+bg+';border-bottom:1px solid rgba(255,255,255,0.04)">'+
+      '<td style="padding:6px 12px;font-weight:700;color:white;white-space:nowrap">'+
+        '<span style="color:#64748b;font-size:10px;margin-left:6px">'+(di+1)+'</span>'+d.name+
+      '</td>'+mCols+
+      '<td style="text-align:center;padding:6px">'+trend+'</td>'+
+    '</tr>';
+  }).join('');
+
+  // ── مقارنة المشاريع ──
+  var allProjs={};
+  mStats.forEach(function(m){Object.keys(m.byProj).forEach(function(k){allProjs[k]=1;});});
+  var projRows=Object.keys(allProjs).sort(function(a,b){
+    var ta=mStats.reduce(function(s,m){return s+(m.byProj[a]?m.byProj[a].amt:0);},0);
+    var tb=mStats.reduce(function(s,m){return s+(m.byProj[b]?m.byProj[b].amt:0);},0);
+    return tb-ta;
+  }).map(function(p){
+    var cols=mStats.map(function(m,i){
+      var cl=COLS2[i%COLS2.length];
+      var t=m.byProj[p];
+      if(!t||!t.cnt) return '<td style="text-align:center;color:#374151;padding:6px 10px">—</td>';
+      return '<td style="text-align:center;padding:6px 10px">'+
+        '<span style="color:'+cl+';font-weight:700">'+fn(t.cnt)+'</span>'+
+        '<br><span style="font-size:10px;color:#64748b">'+fc(t.amt)+'</span></td>';
+    }).join('');
+    return '<tr style="border-bottom:1px solid rgba(255,255,255,0.04)">'+
+      '<td style="color:white;font-weight:600;padding:6px 12px">'+p+'</td>'+cols+'</tr>';
+  }).join('');
+
+  var projHead='<th style="text-align:right;padding:8px 12px;color:#a7f3d0">المشروع</th>'+
+    mStats.map(function(m,i){return '<th style="text-align:center;padding:8px;color:'+COLS2[i%COLS2.length]+'">'+m.label+'<br><span style="font-size:9px;opacity:.7">نقلات | مبلغ</span></th>';}).join('');
+
+  document.getElementById('mcmp-result').innerHTML=
+    // كروت الشهور
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:24px">'+cards+'</div>'+
+    // جدول السواقين
+    '<div style="font-size:13px;font-weight:800;color:#f59e0b;margin-bottom:10px;display:flex;align-items:center;gap:8px">'+
+      '👤 مقارنة السواقين'+
+      '<span style="font-size:10px;color:#64748b;font-weight:400">(مرتب حسب الأعلى مبلغاً)</span>'+
+    '</div>'+
+    '<div style="overflow-x:auto;margin-bottom:24px"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
+      '<thead><tr style="background:rgba(16,185,129,0.08);position:sticky;top:0">'+
+        '<th style="text-align:right;padding:8px 12px;color:#a7f3d0;white-space:nowrap">السائق</th>'+
+        thCols+
+        '<th style="text-align:center;padding:8px;color:#f59e0b">الاتجاه</th>'+
+      '</tr></thead>'+
+      '<tbody>'+tbody+'</tbody>'+
+    '</table></div>'+
+    // مقارنة المشاريع
+    '<div style="font-size:13px;font-weight:800;color:#f59e0b;margin-bottom:10px">📦 مقارنة المشاريع</div>'+
+    '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
+      '<thead><tr style="background:rgba(16,185,129,0.08)">'+projHead+'</tr></thead>'+
+      '<tbody>'+projRows+'</tbody>'+
+    '</table></div>';
+}
+
+window.openMonthsCmp=openMonthsCmp;
+window.closeMCmp=closeMCmp;
+window.toggleMCmp=toggleMCmp;
+window.runMonthsCmp=runMonthsCmp;
 </script>
 </body>
 </html>
