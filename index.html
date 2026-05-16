@@ -1049,7 +1049,10 @@ window.processFiles=processFiles;window.handleFiles=handleFiles;window.removeFil
       <div style="font-size:12px;color:#64748b;margin-bottom:8px">اختر الشهور للمقارنة:</div>
       <div id="mcmp-months" style="display:flex;gap:8px;flex-wrap:wrap"></div>
     </div>
-    <button onclick="runMonthsCmp()" style="background:linear-gradient(135deg,#a855f7,#9333ea);border:none;border-radius:10px;padding:10px 24px;color:white;font-size:13px;font-weight:800;font-family:Cairo,sans-serif;cursor:pointer;margin-bottom:20px">🔍 مقارنة</button>
+    <div style="display:flex;gap:10px;margin-bottom:20px">
+      <button onclick="runMonthsCmp()" style="background:linear-gradient(135deg,#a855f7,#9333ea);border:none;border-radius:10px;padding:10px 24px;color:white;font-size:13px;font-weight:800;font-family:Cairo,sans-serif;cursor:pointer">🔍 مقارنة</button>
+      <button onclick="saveMonthsCmp()" style="background:linear-gradient(135deg,#f59e0b,#d97706);border:none;border-radius:10px;padding:10px 24px;color:white;font-size:13px;font-weight:800;font-family:Cairo,sans-serif;cursor:pointer">💾 حفظ المقارنة</button>
+    </div>
     <div id="mcmp-result"></div>
   </div>
 </div>
@@ -1228,6 +1231,38 @@ function runMonthsCmp(){
       '<thead><tr style="background:rgba(16,185,129,0.08)">'+projHead+'</tr></thead>'+
       '<tbody>'+projRows+'</tbody>'+
     '</table></div>';
+}
+
+function saveMonthsCmp(){
+  var result = document.getElementById('mcmp-result');
+  if(!result || !result.innerHTML.trim()){
+    alert('اضغط مقارنة الأول!'); return;
+  }
+  var label = mcmpSelected.join(' vs ');
+  var now = new Date().toLocaleDateString('ar-EG');
+  var html = '<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">'+
+    '<title>مقارنة الشهور — '+label+'</title>'+
+    '<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">'+
+    '<style>*{font-family:Cairo,sans-serif;margin:0;padding:0;box-sizing:border-box}'+
+    'body{background:#070d18;color:#f1f5f9;padding:24px}'+
+    'table{width:100%;border-collapse:collapse;font-size:12px}'+
+    'th{background:rgba(16,185,129,0.1);padding:8px 10px;text-align:right;color:#a7f3d0;font-weight:800}'+
+    'td{padding:6px 10px;border-bottom:1px solid rgba(255,255,255,0.04)}'+
+    'tr:hover td{background:rgba(16,185,129,0.03)}'+
+    '.header{background:rgba(13,24,41,0.95);border:1px solid rgba(168,85,247,0.3);border-radius:16px;padding:20px;margin-bottom:20px}'+
+    '</style></head><body>'+
+    '<div class="header">'+
+    '<h1 style="font-size:20px;font-weight:900;color:white;margin-bottom:4px">⚖️ مقارنة الشهور</h1>'+
+    '<p style="color:#a855f7;font-size:12px">'+label+' | تاريخ الحفظ: '+now+'</p>'+
+    '</div>'+
+    result.innerHTML+
+    '<div style="text-align:center;color:#374151;font-size:11px;margin-top:20px">Naolon © 2026 | Powered by Waleed Salah</div>'+
+    '</body></html>';
+  var blob = new Blob([html],{type:'text/html;charset=utf-8'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href=url; a.download='مقارنة-'+label.replace(/ /g,'-')+'.html';
+  a.click(); URL.revokeObjectURL(url);
 }
 
 window.openMonthsCmp=openMonthsCmp;
