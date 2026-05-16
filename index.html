@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -361,7 +360,7 @@ async function processFiles(){
     try{
       var data=await readExcel(f);
       var label=f.name.replace(/\.xlsx?$/i,'').replace(/naolon-salary-/i,'').trim();
-      var emps=parseExcelData(data);
+      var emps=parseByPosition(data, 2);
       if(emps && emps.length) months.push({label:label, emps:emps});
     }catch(e){ console.warn('Error in '+f.name,e); }
   }
@@ -388,7 +387,8 @@ function readExcel(file){
       try{
         var wb=XLSX.read(e.target.result,{type:'binary'});
         var ws=wb.Sheets[wb.SheetNames[0]];
-        var json=XLSX.utils.sheet_to_json(ws,{defval:''});
+        // اقرأ كـ 2D array (header:1 = no auto header)
+var json=XLSX.utils.sheet_to_json(ws,{header:1, defval:''});
         resolve(json);
       }catch(err){reject(err);}
     };
@@ -399,69 +399,131 @@ function readExcel(file){
 
 function parseExcelData(rows){
   if(!rows||!rows.length) return [];
-  
-  // كشف أسماء الأعمدة بمرونة
-  var sample=rows[0];
-  var keys=Object.keys(sample);
-  
-  function findCol(patterns){
-    return keys.find(function(k){
-      return patterns.some(function(p){return k.toString().toLowerCase().indexOf(p)>=0;});
-    })||null;
+
+  // الـ Excel بيجي من SheetJS كـ array of objects بـ keys __EMPTY, __EMPTY_1, إلخ
+  // أو بالقيمة الفعلية من header row
+  // نشتغل على raw rows مع index
+
+  // نحول rows لـ 2D array
+  var allKeys = [];
+  rows.forEach(function(r){ Object.keys(r).forEach(function(k){ if(allKeys.indexOf(k)<0) allKeys.push(k); }); });
+
+  // ابحث عن row الـ header (اللي فيه "Employee Name" أو "اسم الموظف")
+  var headerRowIdx = -1;
+  var dataRows = [];
+  var projects = []; // {name, tripsKey, amtKey}
+
+  // نفترض إن أول 3 rows هي headers - نشتغل على row index 2 (N, ID, Employee Name)
+  // وبعدين row 3+ هي البيانات
+  // بس SheetJS بيقرأهم كـ flat objects
+
+  // استراتيجية: نلاقي row اللي فيه "Employee Name" أو "N" في أول column
+  var rawArr = rows.map(function(r){ return allKeys.map(function(k){ return r[k]; }); });
+
+  // ابحث عن header row (row اللي فيه "Employee Name" أو "ID")
+  for(var ri=0; ri<Math.min(10, rawArr.length); ri++){
+    var row = rawArr[ri];
+    var rowStr = row.join('|').toLowerCase();
+    if(rowStr.indexOf('employee name')>=0 || rowStr.indexOf('اسم الموظف')>=0){
+      headerRowIdx = ri;
+      break;
+    }
   }
+
+  // لو مش لاقي header - استخدم default column positions
+  if(headerRowIdx < 0){
+    // الـ structure الثابت:
+    // col 0=N, 1=Code, 2=Name, 3=Work, 4=Off, 5=Sick, 6=Vac, 7=Wait, 8=Abs, 9=Holiday, 10=OT, 11=Total
+    // 13=ExtraH, Projects تبدأ من col 25 (pairs: trips, amt)
+    return parseByPosition(rawArr);
+  }
+
+  return parseByPosition(rawArr, headerRowIdx);
+}
+
+function parseByPosition(rawArr, headerRow){
+  headerRow = headerRow || 2;
+  var dataStart = headerRow + 1;
   
-  var cCode  = findCol(['كود','code','id','رقم']);
-  var cName  = findCol(['اسم','name','سائق','driver']);
-  var cWork  = findCol(['عمل','work','حضور','attend']);
-  var cOff   = findCol(['راحة','off','اجازه اسبوعيه','إجازة أ']);
-  var cSick  = findCol(['مرض','sick','مرضى']);
-  var cVac   = findCol(['اجازة','vacation','vac','إجازة س']);
-  var cWait  = findCol(['انتظار','wait']);
-  var cAbs   = findCol(['غياب','abs','absence']);
-  var cOT    = findCol(['اضافى','overtime','ot','إضافي']);
-  var cExH   = findCol(['اضافى اجازة','exh','extra']);
-  var cTrips = findCol(['نقلة','trips','نقل','عدد']);
-  var cAmt   = findCol(['مبلغ','amount','قيمة','amt']);
-  var cProj  = findCol(['مشروع','project','proj','موقع']);
+  // استخرج المشاريع من rows 0,1,2
+  // row 0: اسم المشروع الإنجليزي
+  // row 1: اسم المشروع العربي  
+  // row 2: xTrips / xNaolon
+  var row0 = rawArr[0] || [];
+  var row1 = rawArr[1] || [];
+  var row2 = rawArr[2] || [];
   
-  // تجميع السواقين - كل سطر قد يكون نقلة
-  var map={};
-  rows.forEach(function(r){
-    var code=String(r[cCode]||'').trim();
-    var name=String(r[cName]||'').trim();
-    if(!code&&!name) return;
-    var id=code||name;
-    if(!map[id]){
-      map[id]={
-        id:id, name:name||code,
-        work:parseFloat(r[cWork])||0,
-        off:parseFloat(r[cOff])||0,
-        sick:parseFloat(r[cSick])||0,
-        vac:parseFloat(r[cVac])||0,
-        wait:parseFloat(r[cWait])||0,
-        abs:parseFloat(r[cAbs])||0,
-        ot:parseFloat(r[cOT])||0,
-        exH:parseFloat(r[cExH])||0,
-        totCnt:0, totAmt:0, byProj:{}
-      };
+  var projects = [];
+  for(var ci = 25; ci < row2.length - 1; ci += 2){
+    var h2 = String(row2[ci]||'');
+    var h2n = String(row2[ci+1]||'');
+    if(h2.indexOf('xTrips')>=0 || h2.indexOf('Trips')>=0 || h2 === 'xTrips'){
+      var pName = String(row1[ci]||row0[ci]||'مشروع '+(projects.length+1));
+      if(pName && pName !== 'nan' && pName !== 'undefined'){
+        projects.push({name: pName.trim(), tc: ci, ac: ci+1});
+      }
     }
-    var e=map[id];
-    var cnt=parseFloat(r[cTrips])||0;
-    var amt=parseFloat(r[cAmt])||0;
-    var proj=String(r[cProj]||'أخرى').trim()||'أخرى';
-    if(cnt||amt){
-      e.totCnt+=cnt; e.totAmt+=amt;
-      if(!e.byProj[proj])e.byProj[proj]={cnt:0,amt:0};
-      e.byProj[proj].cnt+=cnt; e.byProj[proj].amt+=amt;
+    // stop at empty columns
+    if(!row1[ci] && !row0[ci] && ci > 42) break;
+  }
+
+  // لو مش لاقي مشاريع - جرب كل pair من col 25
+  if(!projects.length){
+    for(var ci2 = 25; ci2 < Math.min(60, (rawArr[0]||[]).length) - 1; ci2 += 2){
+      var n1 = String(row1[ci2]||'').trim();
+      var n0 = String(row0[ci2]||'').trim();
+      var name = n1 !== 'nan' && n1 ? n1 : (n0 !== 'nan' && n0 ? n0 : '');
+      if(name && name !== '0' && name !== '0.0') projects.push({name:name, tc:ci2, ac:ci2+1});
     }
-    // لو أيام في نفس السطر مع النقلة - خد الأكبر
-    if(cWork&&r[cWork]) e.work=Math.max(e.work,parseFloat(r[cWork])||0);
-  });
-  
-  return Object.values(map).map(function(e){
-    e.salary=(e.totAmt*2)+(e.work*260);
-    return e;
-  }).filter(function(e){return e.name;});
+  }
+
+  var emps = [];
+  for(var ri = dataStart; ri < rawArr.length; ri++){
+    var r = rawArr[ri];
+    if(!r) continue;
+    var code = String(r[1]||'').trim();
+    var name = String(r[2]||'').trim();
+    if(!name || name === 'nan' || name === 'undefined' || name === 'Total' || !isNaN(name)) continue;
+    // تخطى صفوف الإجمالي
+    if(String(r[0]||'').toLowerCase().indexOf('total')>=0) continue;
+
+    var n = function(v){ var x=parseFloat(v); return isNaN(x)?0:x; };
+
+    var byProj = {};
+    projects.forEach(function(p){
+      var tc = n(r[p.tc]);
+      var ac = n(r[p.ac]);
+      if(tc > 0 || ac > 0){
+        byProj[p.name] = {cnt: tc, amt: ac};
+      }
+    });
+
+    var totCnt = n(r[23]);
+    var totAmt = n(r[24]);
+    // لو مفيش totals - احسبهم من المشاريع
+    if(!totCnt && !totAmt){
+      Object.values(byProj).forEach(function(p){ totCnt+=p.cnt; totAmt+=p.amt; });
+    }
+
+    var work = n(r[3]);
+    emps.push({
+      id: code || String(ri),
+      name: name,
+      work: work,
+      off: n(r[4]),
+      sick: n(r[5]),
+      vac: n(r[6]),
+      wait: n(r[7]),
+      abs: n(r[8]),
+      ot: n(r[10]),
+      exH: n(r[13]),
+      totCnt: totCnt,
+      totAmt: totAmt,
+      salary: (totAmt * 2) + (work * 260),
+      byProj: byProj
+    });
+  }
+  return emps;
 }
 
 
